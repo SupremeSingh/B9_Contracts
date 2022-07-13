@@ -1,11 +1,26 @@
 //SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.7;
 
-import "hardhat/console.sol";
-import "@openzeppelin/contracts/interfaces/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/interfaces/IERC20.sol";
 
-contract Splitter is Ownable{ 
+contract SplitterFactory {
+
+    mapping(address => mapping(address => bool)) userAccountDetails;
+    
+    event NewSplitterCreated(address indexed creator, address splitter);
+
+    function deploy(address tokenAddress) external {
+        require(userAccountDetails[msg.sender][tokenAddress] == false, "You have a splitter for this token");
+        Splitter newSplitterInstance = new Splitter(tokenAddress);
+        userAccountDetails[msg.sender][tokenAddress] = true;
+        emit NewSplitterCreated(msg.sender, address(newSplitterInstance));
+
+        newSplitterInstance.transferOwnership(msg.sender);
+    }
+}
+
+contract Splitter is Ownable { 
 
     IERC20 tokenToBeSplit;
 
@@ -13,58 +28,54 @@ contract Splitter is Ownable{
         uint256 balances;
         bool hasBeenRegistered;
     }
+
     address[] public allAddressesRegistered; 
     mapping (address => UserAccounts) userAccountDetails;
-    uint256 private carry;
 
-    event NewParticipantAdded(address indexed newParticipant, address registrar);
-    event NewTokensAdded(address contributor, uint256 amountAdded);
-
-    modifier notForOwner(address _addressToBeUsed) {
-        require(_addressToBeUsed != owner(), "The owner cannot benefit from this function");
-        _;
-    }
+    event NewParticipantAdded(address indexed newParticipant);
+    event DepositTokens(address contributor, uint256 amountAdded);
+    event WithdrawTokens(address indexed withdrawer, uint256 amountWithdrawn);
 
     constructor(address _tokenAddress) {
+      require(IERC20(_tokenAddress).totalSupply() >= 0, "This is not a valid ERC20 Token");
       tokenToBeSplit = IERC20(_tokenAddress);  
     }
 
     function depositTokens(uint256 _amount) external onlyOwner() {
-        require(tokenToBeSplit.allowance(msg.sender, address(this)) >= _amount,"Insuficient Allowance");
-        require(tokenToBeSplit.transferFrom(msg.sender,address(this), _amount),"Transfer Failed");
-    
+        tokenToBeSplit.transferFrom(msg.sender,address(this), _amount);
+        emit DepositTokens(msg.sender, _amount);
         updateUserBalances(_amount);
-        
-        emit NewTokensAdded(msg.sender, _amount);
     }
 
-    function withdrawTokens(uint256 _amountToBeWithdrawn) external notForOwner(msg.sender) returns(bool didGoThrough){
-        require(userAccountDetails[msg.sender].balances > _amountToBeWithdrawn, "Insufficient balance in account");
+    function withdrawTokens(uint256 _amountToBeWithdrawn) external {
+        require(msg.sender != owner(), "Owner cannot withdraw funds from the contract");
+        require(userAccountDetails[msg.sender].balances >= _amountToBeWithdrawn, "Insufficient balance in account");
         userAccountDetails[msg.sender].balances -= _amountToBeWithdrawn;
+        emit WithdrawTokens(msg.sender, _amountToBeWithdrawn);
         tokenToBeSplit.transfer(msg.sender, _amountToBeWithdrawn);
-        didGoThrough = true;
     }
 
-    function addParticipants(address _newUserAddress) external onlyOwner notForOwner(_newUserAddress){
-        require(_newUserAddress != address(0), "0x is not a valid input");
+
+    function addParticipants(address _newUserAddress) external onlyOwner {
+        require(_newUserAddress != address(0) && _newUserAddress != owner(), "This address is not a valid input");
         require(!userAccountDetails[_newUserAddress].hasBeenRegistered, "This address has been registered");
         allAddressesRegistered.push(_newUserAddress);
         userAccountDetails[_newUserAddress] = UserAccounts(0, true);
-        emit NewParticipantAdded(_newUserAddress, msg.sender);
+        emit NewParticipantAdded(_newUserAddress);
     }
 
     function getContractBalance() public view returns(uint256 value){
         value = tokenToBeSplit.balanceOf(address(this));
     }
 
-    // Does not have decimals so far 
-    function updateUserBalances(uint256 _amount) internal returns(bool output) {
-        uint256 intVal = (_amount + carry) / allAddressesRegistered.length;
+    function updateUserBalances(uint256 _amount) internal returns(bool success) {
+        uint256 intVal = _amount / allAddressesRegistered.length;
+        uint256 carry = _amount % allAddressesRegistered.length;
         for (uint256 i = 0; i < allAddressesRegistered.length; ++i ) {
             userAccountDetails[allAddressesRegistered[i]].balances += intVal;
         }
-        carry = (_amount + carry) % allAddressesRegistered.length;
-        output = true;
+        tokenToBeSplit.transfer(owner(), carry);
+        success = true;
     }
 
 }
