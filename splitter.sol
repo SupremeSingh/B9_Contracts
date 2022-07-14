@@ -21,6 +21,7 @@ contract Splitter is Ownable {
     event WithdrawTokens(address indexed withdrawer, uint256 amountWithdrawn);
     
     constructor(address _tokenAddress, address[] memory initialUserList, uint256 baseShares) {
+      require(baseShares % 1000000000 > 0, "Base shares must be at least 9 decimals");
       require(IERC20(_tokenAddress).totalSupply() >= 0, "This is not a valid ERC20 Token");
       
       tokenToBeSplit = IERC20(_tokenAddress);  
@@ -39,7 +40,8 @@ contract Splitter is Ownable {
 
     function addNewUser(address newUserAddress, uint256 baseShares) external onlyOwner() {
         require(userAccountDetails[newUserAddress] > 0, "This address has been registered");
-        currentShareValue = totalValueDeposited / (totalSharesIssued + baseShares);
+        totalSharesIssued += baseShares;
+        currentShareValue = totalValueDeposited / totalSharesIssued;
         _addNewUser(newUserAddress, baseShares);
     }
 
