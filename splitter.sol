@@ -39,7 +39,6 @@ contract Splitter is Ownable {
     }
 
     function addNewUser(address newUserAddress, uint256 baseShares) external onlyOwner() {
-        require(userAccountDetails[newUserAddress] > 0, "This address has been registered");
         totalSharesIssued += baseShares;
         currentShareValue = totalValueDeposited / totalSharesIssued;
         _addNewUser(newUserAddress, baseShares);
@@ -63,6 +62,7 @@ contract Splitter is Ownable {
 
     function _addNewUser(address newUserAddress, uint256 shares) private {
         require(shares > 0, "Share value cannot be 0");
+        require(userAccountDetails[newUserAddress] == 0, "This address has been registered");
         require(shares % 1000000000 > 0, "Base shares must be at least 9 decimals");
         require(newUserAddress != address(0), "0x - This address is not a valid input");
         
