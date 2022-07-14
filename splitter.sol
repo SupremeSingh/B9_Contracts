@@ -21,7 +21,6 @@ contract Splitter is Ownable {
     event WithdrawTokens(address indexed withdrawer, uint256 amountWithdrawn);
     
     constructor(address _tokenAddress, address[] memory initialUserList, uint256 baseShares) {
-      require(baseShares % 1000000000 > 0, "Base shares must be at least 9 decimals");
       require(IERC20(_tokenAddress).totalSupply() >= 0, "This is not a valid ERC20 Token");
       
       tokenToBeSplit = IERC20(_tokenAddress);  
