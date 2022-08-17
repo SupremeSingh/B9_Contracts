@@ -6,7 +6,7 @@ import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contr
 import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
-contract SplitterV2 is Ownable { 
+contract Splitter is Ownable { 
 
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
