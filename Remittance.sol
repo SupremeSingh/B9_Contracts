@@ -1,60 +1,52 @@
 //SPDX-License-Identifier: MIT
 pragma solidity 0.8.7;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+contract RemittanceContract { 
 
-contract Remittance is Ownable { 
-
-    uint256 public totalFundsToSend;
-    uint256 public reviewDuration;
-    bytes32 public uniqueSignatureValue;
-    bool public investigationStatus;
-
-    mapping(address => uint256) agentToEthBalance;
-
-    event ReleaseTokensToExchanger(address exchangerAddress, uint256 timestamp);
-    event SubmitFraudProof(address recipientAddress, uint256 timestamp);
-    event InvestigationConcluded(address addressPunished, uint256 fundsRetained, uint256 timestamp);
-
-    modifier whileInReview() {
-        require(block.timestamp < reviewDuration, "Can only do this in the review period");
-        _;
+struct Remittance {
+        address sender;
+        address exchanger;
+        uint256 value;
+        uint256 expiry;
     }
 
-    constructor(uint256 fundsToSend, uint256 withholdingPeriod, bytes32 uniqueSignature) payable {
-        require(msg.value >= fundsToSend, "Not enough funding provided");
-        require(withholdingPeriod >= 1 hours, "At least 1 hour of waiting is needed");
-        reviewDuration = block.timestamp + (withholdingPeriod * 1 hours);
-        totalFundsToSend = fundsToSend;
-        uniqueSignatureValue = uniqueSignature;
+    mapping (bytes32 => Remittance) codeToRemittance; 
+    mapping (address => uint256) walletBalance;
+
+    event NewRemittanceRequestCreated(address sender, address exchanger, uint256 transactionValue, uint256 expiry);
+    event ReleaseTokensToExchanger(address exchanger, uint256 transactionValue, uint256 timestamp);
+    event TransactionConfirmedBySender(address sender, address exchanger, uint256 timestamp);
+
+    function createNewRemittanceRequest(uint256 withholdingInterval, bytes32 remittanceHash) external payable {
+        require(msg.value > 0, "Remittance should have non-zero deliverable value");
+        require(withholdingInterval >= 1, "Remittance must have more than 1 hour of review");      
+        codeToRemittance[remittanceHash] = Remittance(msg.sender, address(0), msg.value, block.timestamp + withholdingInterval * 1 hours);
+        emit NewRemittanceRequestCreated(msg.sender, address(0), msg.value, block.timestamp + withholdingInterval * 1 hours);
+    }
+
+    function releaseTokensToExchanger(bytes32 exchangerNumberHash, bytes32 recipientNumberHash) external {
+        bytes32 uniqueSignatureValue = keccak256(abi.encodePacked(exchangerNumberHash, recipientNumberHash));
+        require(codeToRemittance[uniqueSignatureValue].value > 0, "There is no balance against this value");
+        require(codeToRemittance[uniqueSignatureValue].expiry > block.timestamp, "This check has now expired");
+        codeToRemittance[uniqueSignatureValue].exchanger = msg.sender;
+        emit ReleaseTokensToExchanger(msg.sender, walletBalance[msg.sender], block.timestamp);
+    }
+
+    function confirmTransaction(bytes32 remittanceHash) external {
+        require(msg.sender == codeToRemittance[remittanceHash].sender, "Only the sender can withdraw funds");
+        require(codeToRemittance[remittanceHash].exchanger != address(0), "This transactions first needs to be initiated by exchanger"); 
+        if (codeToRemittance[remittanceHash].expiry > block.timestamp) {
+            walletBalance[codeToRemittance[remittanceHash].exchanger] += codeToRemittance[remittanceHash].value;
+        }  else {
+            walletBalance[codeToRemittance[remittanceHash].sender] += codeToRemittance[remittanceHash].value;   
+        }
+        codeToRemittance[remittanceHash].value = 0;
+        emit TransactionConfirmedBySender(codeToRemittance[remittanceHash].sender, codeToRemittance[remittanceHash].exchanger, block.timestamp);
     }   
 
-    function releaseTokensToExchanger(uint256 exchangerNumber, uint256 recipientNumber) external whileInReview {
-        require(uniqueSignatureValue == keccak256(abi.encodePacked(exchangerNumber, recipientNumber)), "One of the inputs is invalid");
-        agentToEthBalance[msg.sender] += address(this).balance;
-        emit ReleaseTokensToExchanger(msg.sender, block.timestamp);
-    }
-
-    function submitFraudProof() external payable whileInReview {
-        require(msg.value >= totalFundsToSend, "Inadequate stake for the fraud proof");
-        agentToEthBalance[msg.sender] += msg.value;
-        investigationStatus = true;
-        emit SubmitFraudProof(msg.sender, block.timestamp);
-    }
-
-    function conductInvestigation(address agentToPunish) external onlyOwner whileInReview {
-        require(investigationStatus, "No complaint filed by recipient");
-        agentToEthBalance[msg.sender] += agentToEthBalance[agentToPunish];
-        emit InvestigationConcluded(agentToPunish, agentToEthBalance[agentToPunish], block.timestamp);
-        agentToEthBalance[agentToPunish] = 0;
-        investigationStatus = false;
-    }
-
     function withdrawValue(uint256 amount) public {
-        require(block.timestamp > reviewDuration, "Can only withdraw funds after review duration");
-        require(!investigationStatus, "Cannot withdraw during on-going investigation");
-        require(agentToEthBalance[msg.sender] >= amount, "Insufficient balance in account");
-        agentToEthBalance[msg.sender] -= amount;
+        require(walletBalance[msg.sender] > 0, "You do not have any money in this account");
+        walletBalance[msg.sender] = 0;
         payable(address(msg.sender)).transfer(amount);
     } 
 }
